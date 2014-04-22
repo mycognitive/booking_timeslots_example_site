@@ -1,0 +1,763 @@
+diff --git a/UPGRADE.txt b/UPGRADE.txt
+index f3473ee..a4ad52e 100644
+--- a/UPGRADE.txt
++++ b/UPGRADE.txt
+@@ -1,20 +1,18 @@
+-# Upgrading (from Drupal 6 to 7)
+-
+ 1. **BE WARE THAT NOT ALL FUNCTIONALITY HAS BEEN PORTED!**
+ 
+-	Make sure that you know if the part of Hierarchical Select's functionality
+-	that you want to use has been ported. Otherwise, you may be in for a
+-	frustrating upgrade experience.
++  Make sure that you know if the part of Hierarchical Select's functionality
++  that you want to use has been ported. Otherwise, you may be in for a
++  frustrating upgrade experience.
+ 
+-	See the included TODO.txt file for details. In a nutshell:
++  See the included TODO.txt file for details. In a nutshell:
+ 
+-	- Taxonomy support is almost complete, only "create new item", "entity count" and token support are missing
+-	- Forum support has **not** yet been ported (but relies on Taxonomy, so this is trivial)
+-	- Taxonomy Views support has **not** yet been ported
+-	- Menu support has **not** yet been ported
++  - Taxonomy support is almost complete, only "create new item", "entity count" and token support are missing
++  - Forum support has **not** yet been ported (but relies on Taxonomy, so this is trivial)
++  - Taxonomy Views support has **not** yet been full ported
++  - Menu support has **not** yet been ported
+ 
+ 2. Upgrade this module just like any other: delete the old module, copy the
+-	files of the new module and run update.php.  
+-	For details, see <http://drupal.org/node/570162>.
++   files of the new module and run update.php.
++   For details, see <http://drupal.org/node/570162>.
+ 
+ 3. That's it! :)
+diff --git a/hierarchical_select.js b/hierarchical_select.js
+index 059fcc8..3034f87 100644
+--- a/hierarchical_select.js
++++ b/hierarchical_select.js
+@@ -450,9 +450,22 @@ Drupal.HierarchicalSelect.triggerEvents = function(hsid, updateType, settings) {
+ Drupal.HierarchicalSelect.update = function(hsid, updateType, settings) {
+   var post = $('form:has(#hierarchical-select-' + hsid +'-wrapper)', Drupal.HierarchicalSelect.context).formToArray();
+ 
++  if(Drupal.settings.exposed_form_info) {
++    $.each(Drupal.settings.exposed_form_info, function (key, val) {
++      var keyExists = false;
++      $.each(post, function (keyPost, valPost) {
++        if(valPost.name == val) {
++          keyExists = true;
++        }
++      });
++      if(keyExists == false) {
++        post.push({'name' : key, 'value' : val});
++      }
++    });
++  }
++
+   // Pass the hierarchical_select id via POST.
+   post.push({ name : 'hsid', value : hsid });
+-  
+   // If a cache system is installed, let the server know if it's running
+   // properly. If it is running properly, the server will send back additional
+   // information to maintain a lazily-loaded cache.
+diff --git a/hierarchical_select.module b/hierarchical_select.module
+index 731267d..4164c9a 100644
+--- a/hierarchical_select.module
++++ b/hierarchical_select.module
+@@ -25,7 +25,7 @@ function hierarchical_select_menu() {
+     'theme callback'    => 'ajax_base_page_theme',
+     'type'              => MENU_CALLBACK,
+   );
+-  
++
+   $items['admin/config/content/hierarchical_select'] = array(
+     'title'            => 'Hierarchical Select',
+     'description'      => 'Configure site-wide settings for the Hierarchical Select form element.',
+@@ -274,7 +274,7 @@ function hierarchical_select_config_id_load($config_id) {
+ // Forms API callbacks.
+ 
+ /**
+- * Strongly 
++ * Strongly
+  *
+  * @see file_ajax_upload(), upon which this is strongly inspired.
+  * @see ajax_form_callback()
+@@ -308,7 +308,7 @@ function hierarchical_select_ajax($form, $form_state) {
+   foreach ($form_parents as $parent) {
+     $form = $form[$parent];
+   }
+-  
++
+   // If the user's browser supports the active cache system, then send the
+   // currently requested hierarchy in an easy-to-manage form.
+   $cache = array();
+@@ -329,10 +329,14 @@ function hierarchical_select_ajax($form, $form_state) {
+   // Send AJAX command to update the Hierarchical Select.
+   $commands = array();
+   $commands[] = array(
+-      'command' => 'hierarchicalSelectUpdate', 
+-      'output'  => $output, 
++      'command' => 'hierarchicalSelectUpdate',
++      'output'  => $output,
+       // 'cache'   => $cache,
+   );
++  $commands[] = array(
++      'command' => 'viewUpdate',
++      'output'  => $output,
++  );
+   $new_settings = _hs_new_setting_ajax(FALSE);
+   foreach ($new_settings as $new_setting) {
+     $commands[] = array(
+@@ -376,10 +380,11 @@ function _hs_process_shortcut_special_items($config) {
+ function _hs_process_attach_css_js($element, $hsid, &$form_state, $complete_form) {
+   // Set up Javascript and add settings specifically for the current
+   // hierarchical select.
++  $element['#attached']['library'][] = array('system', 'ui');
+   $element['#attached']['library'][] = array('system', 'drupal.ajax');
+   $element['#attached']['library'][] = array('system', 'jquery.form');
+-  $element['#attached']['library'][] = array('system', 'effects.core');    
+-  $element['#attached']['library'][] = array('system', 'effects.drop');    
++  $element['#attached']['library'][] = array('system', 'effects.core');
++  $element['#attached']['library'][] = array('system', 'effects.drop');
+   $element['#attached']['css'][] = drupal_get_path('module', 'hierarchical_select') . '/hierarchical_select.css';
+   $element['#attached']['js'][] = drupal_get_path('module', 'hierarchical_select') . '/hierarchical_select.js';
+   if (variable_get('hierarchical_select_js_cache_system', 0) == 1) {
+@@ -489,7 +494,7 @@ function _hs_process_developer_mode_log_selections($config, $hs_selection, $db_s
+   }
+ }
+ 
+-function _hs_process_developer_mode_log_hierarchy_and_dropbox($config, $hierarchy, $dropbox) {  
++function _hs_process_developer_mode_log_hierarchy_and_dropbox($config, $hierarchy, $dropbox) {
+   if (HS_DEVELOPER_MODE) {
+     _hierarchical_select_log('Generated hierarchy in ' . $hierarchy->build_time['total'] . ' ms:');
+     _hierarchical_select_log($hierarchy);
+@@ -627,7 +632,7 @@ function _hs_process_render_dropbox($element, $hsid, $creating_new_item, $dropbo
+         '#attributes'              => array('class' => array('add-to-dropbox')),
+         '#limit_validation_errors' => array($element['#parents']),
+         '#validate'                => array(),
+-        '#submit'                  => array('hierarchical_select_ajax_update_submit'),        
++        '#submit'                  => array('hierarchical_select_ajax_update_submit'),
+       );
+     }
+ 
+@@ -641,7 +646,7 @@ function _hs_process_render_dropbox($element, $hsid, $creating_new_item, $dropbo
+ 
+         // Disable all child form elements of $element['hierarchical_select].
+         // _hierarchical_select_mark_as_disabled($element['hierarchical_select']);
+-        
++
+         // TODO: make the above work again. Currently, we're just disabling
+         // the "Add" button. #disabled can't be used for the same reasons as
+         // described in _hierarchical_select_mark_as_disabled().
+@@ -654,7 +659,7 @@ function _hs_process_render_dropbox($element, $hsid, $creating_new_item, $dropbo
+     if (isset($dropbox->lineages_selections)) {
+       $form_state['storage']['hs'][$hsid]['dropbox_lineages_selections'] = $dropbox->lineages_selections;
+     }
+-    
++
+     // Add the dropbox-as-a-table that will be visible to the user.
+     $element['dropbox']['visible'] = _hs_process_render_db_table($hsid, $dropbox);
+   }
+@@ -689,10 +694,7 @@ function _hs_process_render_nojs($element, $config) {
+ /**
+  * Hierarchical select form element type #process callback.
+  */
+-function form_hierarchical_select_process($element, &$form_state, $complete_form) {  
+-  // dpm('#process');
+-  // dpm($form_state);
+-  //
++function form_hierarchical_select_process($element, &$form_state, $complete_form) {
+   // Calculations.
+   //
+ 
+@@ -920,7 +922,6 @@ function _hierarchical_select_process_get_hs_selection($element) {
+       $hs_selection = ($hs_selection != -1) ? array(end($hs_selection)) : array();
+     }
+   }
+-
+   return $hs_selection;
+ }
+ 
+@@ -1024,7 +1025,7 @@ function _hierarchical_select_process_calculate_selections(&$element, $hsid, $fo
+   // - no input data was provided (through POST nor GET)
+   // - or #value is set directly and not by a Hierarchical Select POST (and
+   //   therefor set either manually or by another module),
+-  // then use the value of #default_value, or when available, of #value.  
++  // then use the value of #default_value, or when available, of #value.
+   if (empty($form_state['input']) || (!isset($element['#value']['hierarchical_select']) && !isset($element['#value']['dropbox']))) {
+     $value = (isset($element['#value'])) ? $element['#value'] : $element['#default_value'];
+     $value = (is_array($value)) ? $value : array($value);
+@@ -1094,6 +1095,16 @@ function _hierarchical_select_process_calculate_selections(&$element, $hsid, $fo
+       // - $op == t('Cancel') (used when creating a new item or a new level)
+       // - any other submit button, e.g. the "Preview" button
+       $hs_selection = _hierarchical_select_process_get_hs_selection($element);
++      // hack to get hs_views running
++      if(array_key_exists($element['#name'], $form_state['values'])) {
++        $values = $form_state['values'][$element['#name']];
++        if( is_array($values) ) {
++          $hs_selection[] = $form_state['values'][$element['#name']]['hierarchical_select']['selects'];
++        } else {
++          $hs_selection[] = check_plain($form_state['values'][$element['#name']]);
++        }
++      }
++
+       if ($dropbox) {
+         $db_selection = _hierarchical_select_process_get_db_selection($element, $hsid, $form_state);
+       }
+@@ -1408,7 +1419,7 @@ function _hierarchical_select_mark_as_disabled(&$element) {
+   //    for UI purposes only, but still allow input to be processed if it's
+   //    sumitted, it can set the desired attribute in #attributes directly
+   //    rather than using #disabled."
+-  // #disabled prevents #value from containing values for disabled elements, 
++  // #disabled prevents #value from containing values for disabled elements,
+   // but using #attributes circumvents this. Most likely, Form API thinks that
+   // because HS' selects are disabled, that the whole of HS is disabled (which
+   // is of course a wrong assumption). Hence it thinks the 'op' that is being
+@@ -1780,7 +1791,7 @@ function _hierarchical_select_hierarchy_generate($config, $selection, $required,
+ 
+         // Level label: set an empty level label if they've been disabled.
+         $hierarchy->lineage[$depth] = 'label_' . $depth;
+-        $label = ($config['level_labels']['status']) ? t($config['level_labels']['labels'][$depth]) : '';
++        $label = ($config['level_labels']['status'] && array_key_exists($depth, $config['level_labels']['labels'])) ? t($config['level_labels']['labels'][$depth]) : '';
+         $hierarchy->levels[$depth] = array('label_' . $depth => $label) + $hierarchy->levels[$depth] + $children;
+ 
+         $hierarchy->levels[$depth] = _hierarchical_select_apply_entity_settings($hierarchy->levels[$depth], $config);
+diff --git a/modules/hs_taxonomy.module b/modules/hs_taxonomy.module
+index 2fc3fb4..f7d2cc1 100644
+--- a/modules/hs_taxonomy.module
++++ b/modules/hs_taxonomy.module
+@@ -624,7 +624,6 @@ function hs_taxonomy_hierarchical_select_children($parent, $params) {
+       }
+     }
+   }
+-
+   return _hs_taxonomy_hierarchical_select_terms_to_options($terms);
+ }
+ 
+@@ -708,7 +707,7 @@ function hs_taxonomy_hierarchical_select_item_get_label($item, $params) {
+     }
+ 
+     // Use the translated term when available!
+-    if (module_exists('i18ntaxonomy') && i18ntaxonomy_vocabulary($term->vid) == I18N_TAXONOMY_LOCALIZE) {
++    if ( $term->tid !== 0 && module_exists('i18n_taxonomy') && i18n_taxonomy_vocabulary_mode($term->vid) == I18N_MODE_TRANSLATE) {
+       $labels[$item] = i18n_taxonomy_term_name($term);
+     }
+     else {
+@@ -998,6 +997,9 @@ function theme_hs_taxonomy_formatter_lineage($variables) {
+ function _hs_taxonomy_hierarchical_select_get_tree($vid, $parent = 0, $depth = -1, $max_depth = NULL, $reset = FALSE) {
+   static $children, $parents, $terms;
+ 
++  if(!isset($vid) && empty($vid)) {
++    throw new Exception('Vid should not be empty.');
++  }
+   if ($reset) {
+     $children = $parents = $terms = array();
+   }
+@@ -1008,9 +1010,22 @@ function _hs_taxonomy_hierarchical_select_get_tree($vid, $parent = 0, $depth = -
+   // and its children, too.
+   if (!isset($children[$vid])) {
+     $children[$vid] = array();
+-
+     // TODO Please convert this statement to the D7 database API syntax.
+-    $result = db_query('SELECT t.tid, t.*, parent FROM {taxonomy_term_data} t INNER JOIN  {taxonomy_term_hierarchy} h ON t.tid = h.tid WHERE t.vid = :vid ORDER BY weight, name', array(':vid' => $vid));
++    $query = db_select('taxonomy_term_data','ttd');
++    $query->join('taxonomy_term_hierarchy', 'tth', 'ttd.tid = tth.tid');
++    $query->fields('ttd')
++      ->fields('tth')
++      ->condition('ttd.vid', $vid);
++    global $language;
++    $vocabulary = taxonomy_vocabulary_load($vid);
++    if(module_exists('i18n_taxonomy') && !empty($language->language) && $vocabulary->i18n_mode === I18N_MODE_TRANSLATE ) {
++      $query->condition('ttd.language', $language->language);
++    }
++    $query->orderBy('weight', 'ASC')
++      ->orderBy('name', 'ASC');
++    $result = $query
++      ->execute()
++      ->fetchAllAssoc('tid');
+     foreach ($result as $term) {
+       $children[$vid][$term->parent][] = $term->tid;
+       $parents[$vid][$term->tid][] = $term->parent;
+@@ -1096,6 +1111,9 @@ function _hs_taxonomy_hierarchical_select_terms_to_options($terms) {
+  */
+ function _hs_taxonomy_hierarchical_select_get_depth($vid) {
+   $depth = -99999;
++  if(!isset($vid) && empty($vid)) {
++    throw new Exception('Vid should not be empty.');
++  }
+   $tree = _hs_taxonomy_hierarchical_select_get_tree($vid);
+   foreach ($tree as $term) {
+     if ($term->depth > $depth) {
+diff --git a/modules/hs_taxonomy_views.info b/modules/hs_taxonomy_views.info
+index a17c657..22846b7 100644
+--- a/modules/hs_taxonomy_views.info
++++ b/modules/hs_taxonomy_views.info
+@@ -4,6 +4,6 @@ dependencies[] = hierarchical_select
+ dependencies[] = hs_taxonomy 
+ dependencies[] = views
+ package = Form Elements
+-core = 6.x
++core = 7.x
+ 
+ files[] = hs_taxonomy_views_handler_filter_term_node_tid.inc
+diff --git a/modules/hs_taxonomy_views.module b/modules/hs_taxonomy_views.module
+index 84e6680..e91dcc6 100644
+--- a/modules/hs_taxonomy_views.module
++++ b/modules/hs_taxonomy_views.module
+@@ -44,7 +44,7 @@ function hs_taxonomy_views_menu() {
+ /**
+  * Implementation of hook_form_alter().
+  */
+-function hs_taxonomy_views_form_alter(&$form, $form_state, $form_id) {
++function hs_taxonomy_views_form_alter(&$form, &$form_state, $form_id) {
+   //
+   if ($form_id == 'views_ui_edit_view_form') {
+     // Add JS and CSS required for Hierarchical Select to work.
+@@ -82,6 +82,49 @@ function hs_taxonomy_views_form_alter(&$form, $form_state, $form_id) {
+       $form['options']['expose']['operator']['#description'] = $description;
+     }
+   }
++
++  if( $form_id == 'views_exposed_form' ) {
++    // Since the exposed form is a GET form, we don't want it to send a wide
++    // variety of information.
++    $form['form_build_id']['#access'] = FALSE;
++    $form['form_token']['#access'] = FALSE;
++    $form['form_id']['#access'] = FALSE;
++
++    // In order for Ajax to work, we need the form build info. Here we check if
++    // #ajax has been added to any form elements, and if so, pass this info as
++    // settings via Javascript, which get attached to the submitted form on Ajax
++    // form submissions.
++    foreach (element_children($form) as $key) {
++      if (array_key_exists('#ajax', $form[$key])) {
++        $form['#attached']['js'][] = array(
++          'type' => 'setting',
++          'data' => array(
++            'exposed_form_info' => array(
++              'form_id' => $form['#form_id'],
++              'form_build_id' => $form['#build_id'],
++              // 'form_token' => $form['#token'],
++            ),
++          ),
++        );
++        $form['#attached']['js'][] = array(
++          'type' => 'inline',
++          'weight' => 100,
++          'data' => '(function ($) {
++            Drupal.behaviors.ViewsExposedFormAjax = {
++              attach: function(context, settings) {
++                for (ajax_object in Drupal.ajax) {
++                  if (Drupal.ajax[ajax_object].options) {
++                    jQuery.extend(Drupal.ajax[ajax_object].options.data, Drupal.settings.exposed_form_info);
++                  }
++                }
++              }
++            };
++          })(jQuery);',
++        );
++        break;
++      }
++    }
++  }
+ }
+ 
+ //----------------------------------------------------------------------------
+@@ -160,32 +203,14 @@ function hs_taxonomy_views_json($view_name, $display_id) {
+ /**
+  * Implementation of hook_views_api().
+  */
+-function hs_taxonomy_views_api() {
++function hs_taxonomy_views_views_api() {
+   return array(
+-    'api' => 2,
++    'api' => 3,
+     'path' => drupal_get_path('module', 'hierarchical_select') . '/modules',
+   );
+ }
+ 
+ /**
+- * Implementation of hook_views_handlers().
+- */
+-function hs_taxonomy_views_handlers() {
+-  return array(
+-    'handlers' => array(
+-      // Provide a subclass of the term filter handler, to make it possible to
+-      // use Hierarchical Select in Views.
+-      'hs_taxonomy_views_handler_filter_term_node_tid' => array(
+-        'parent' => 'views_handler_filter_term_node_tid',
+-      ),
+-      'hs_taxonomy_views_handler_filter_term_node_tid_depth' => array(
+-        'parent' => 'hs_taxonomy_views_handler_filter_term_node_tid',
+-      ),
+-    )
+-  );
+-}
+-
+-/**
+  * Implementation of hook_views_data_alter().
+  */
+ function hs_taxonomy_views_views_data_alter(&$data) {
+@@ -278,6 +303,7 @@ function hs_taxonomy_views_config_form($form, $form_state, $view, $display_id, $
+   require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'hierarchical_select') . '/includes/common.inc';
+ 
+   $filter = _hs_taxonomy_views_get_filter($view, $display_id, $filter_id);
++  $vocabulary = taxonomy_vocabulary_machine_name_load($filter['vocabulary']);
+ 
+   // Build the config ID.
+   $config_id = "taxonomy-views-$view->name-$display_id-$filter_id";
+@@ -285,19 +311,18 @@ function hs_taxonomy_views_config_form($form, $form_state, $view, $display_id, $
+   // Add the Hierarchical Select config form.
+   $module = 'hs_taxonomy_views';
+   $params = array(
+-    'optional'    => (bool) $filter['expose']['optional'],
++    'optional'    => !((bool) $filter['expose']['required']),
+     'filter_id'   => $filter_id,
+-    'vid'         => $filter['vid'],
++    'vid'         => $vocabulary->vid,
+     'exclude_tid' => NULL,
+     'root_term'   => NULL,
+   );
+-  $vocabulary = taxonomy_vocabulary_load($params['vid']);
+   $defaults = array(
+     // Enable the save_lineage setting by default if the multiple parents
+     // vocabulary option is enabled.
+     'save_lineage' => (int) ($vocabulary->hierarchy == 2),
+     'editability' => array(
+-      'max_levels' => _hs_taxonomy_hierarchical_select_get_depth($filter['vid']),
++      'max_levels' => _hs_taxonomy_hierarchical_select_get_depth($vocabulary->vid),
+     ),
+     // Use our custom callback.
+     'path' => "hs_taxonomy_views_json/$view->name/$display_id",
+@@ -317,11 +342,11 @@ function hs_taxonomy_views_config_form($form, $form_state, $view, $display_id, $
+     'entities'    => t('nodes'),
+   );
+   $max_hierarchy_depth = _hs_taxonomy_hierarchical_select_get_depth($vocabulary->vid);
+-  $preview_is_required = !(bool) $filter['expose']['optional'];
++  $preview_is_required = (bool) $filter['expose']['required'];
+   $form['hierarchical_select_config'] = hierarchical_select_common_config_form($module, $params, $config_id, $defaults, $strings, $max_hierarchy_depth, $preview_is_required);
+ 
+   $form['link'] = array(
+-    '#markup' => l("Back to the View's display configuration", "admin/structure/views/edit/$view->name", array('fragment' => 'views-tab-' . $display_id)),
++    '#markup' => l("Back to the View's display configuration", "admin/structure/views/view/$view->name/edit", array('fragment' => 'views-tab-' . $display_id)),
+     '#prefix' => '<div class="hierarchical-select-config-back-link">',
+     '#suffix' => '</div>',
+     '#weight' => -5,
+@@ -370,7 +395,7 @@ function hs_taxonomy_views_common_config_form_submit($form, &$form_state) {
+     $view->display[$display_id]->display_options['filters'][$filter_id]['expose']['use_operator'] = 0;
+     $view->save();
+ 
+-    views_object_cache_clear('view', $view_name);
++    ctools_object_cache_clear('view', $view_name);
+     drupal_set_message(t("Because you've enabled the 'Save Lineage' setting, the operator has been set to 'AND' and cannot be changed by the end user."));
+   }
+ }
+@@ -444,7 +469,7 @@ function hs_taxonomy_views_hierarchical_select_item_get_label($item, $params) {
+ function hs_taxonomy_views_hierarchical_select_entity_count($item, $params) {
+   static $count;
+ 
+-  $current_view = views_get_current_view();
++/*  $current_view = views_get_current_view();
+ 
+   if (!isset($count[$current_view->name][$item])) {
+     $temp_view = $current_view->clone_view();
+@@ -467,6 +492,7 @@ function hs_taxonomy_views_hierarchical_select_entity_count($item, $params) {
+     if ($item != HS_TAXONOMY_VIEWS_ANY_OPTION) {
+       // Get an array with all tids: the tid of the currently selected term and
+       // all child terms.
++//      print_r($item);
+       $term = taxonomy_term_load($item);
+       $tree = _hs_taxonomy_hierarchical_select_get_tree($term->vid, $term->tid);
+       $tids = array($term->tid => $term->tid);
+@@ -475,7 +501,7 @@ function hs_taxonomy_views_hierarchical_select_entity_count($item, $params) {
+       }
+ 
+       $id = 'tid_' . implode('-', $tids);
+-      $temp_view->display[$display_id]->handler->override_option('filters', array(
++/*      $temp_view->display[$display_id]->handler->override_option('filters', array(
+         $id => array(
+           'operator' => 'or',
+           'value' => $tids,
+@@ -503,59 +529,61 @@ function hs_taxonomy_views_hierarchical_select_entity_count($item, $params) {
+     else {
+       // Disable the default value, otherwise the <Any> option will actually
+       // filter by the default value.
+-      $filter_id = $params['filter_id'];
+-      $temp_view->display[$display_id]->display_options['filters'][$filter_id]['value'] = array();
+-      $temp_view->display[$display_id]->handler->options['filters'][$filter_id]['value'] = array();
+-      $temp_view->display['default']->display_options['filters'][$filter_id]['value'] = array();
+-      $temp_view->display['default']->handler->options['filters'][$filter_id]['value'] = array();
+-    }
+-
++    //   $filter_id = $params['filter_id'];
++    //   $temp_view->display[$display_id]->display_options['filters'][$filter_id]['value'] = array();
++    //   $temp_view->display[$display_id]->handler->options['filters'][$filter_id]['value'] = array();
++    //   $temp_view->display['default']->display_options['filters'][$filter_id]['value'] = array();
++    //   $temp_view->display['default']->handler->options['filters'][$filter_id]['value'] = array();
++    // }
++
++//print_r($display_id);
+     // Build the queries and collect the arguments.
+-    $temp_view->build($display_id);
++    // $temp_view->build($display_id);
+ 
+     // We only need the count query. We don't care about the actual fields or
+     // order of the View.
+-    $count_query = !empty($temp_view->build_info['count_query']) ? $temp_view->build_info['count_query'] : $temp_view->query->count_query;
+-    $args        = !empty($temp_view->build_info['query_args']) ? $temp_view->build_info['query_args'] : $temp_view->query->query_args;
++    // $count_query = !empty($temp_view->build_info['count_query']) ? $temp_view->build_info['count_query'] : $temp_view->query->count_query;
++    // $args        = !empty($temp_view->build_info['query_args']) ? $temp_view->build_info['query_args'] : $temp_view->query->query_args;
+ 
+     // Regenerate the query after we set the distinct flag for the nid field.
+     // This unfortunately doesn't work, because Views doesn't create an
+     // optimized count query when any of the fields have the distinct flag set.
+     //$temp_view->query->fields['nid']['distinct'] = TRUE;
+-    //$count_query = $temp_view->query->query(TRUE);
++    $count_query = $temp_view->query->query(TRUE);
+ 
+     // Due to the above: sneak DISTINCT() in through a string replace ...
+-    $count_query = str_replace("SELECT node.nid AS nid", "SELECT DISTINCT(node.nid) AS nid", $count_query);
++    // $count_query = str_replace("SELECT node.nid AS nid", "SELECT DISTINCT(node.nid) AS nid", $count_query);
+ 
+     // Filter by node type if such a filter is configured in the view.
+-    if (isset($current_view->filter['type'])) {
+-      $node_types = $current_view->filter['type']->value;
+-      if (isset($node_types)) {
+-        $values = '';
+-        foreach ($node_types as $key => $value) {
+-          if (empty($values)) {
+-            $values = '\'' . $value . '\'';
+-          }
+-          else {
+-            $values .= ', \'' . $value . '\'';
+-          }
+-        }
+-
+-        // Use the same sneaky string replace trick once more.
+-        $count_query = str_replace("WHERE", 'WHERE node.type IN (' . $values . ') AND', $count_query);
+-      }
+-    }
++    // if (isset($current_view->filter['type'])) {
++    //   $node_types = $current_view->filter['type']->value;
++    //   if (isset($node_types)) {
++    //     $values = '';
++    //     foreach ($node_types as $key => $value) {
++    //       if (empty($values)) {
++    //         $values = '\'' . $value . '\'';
++    //       }
++    //       else {
++    //         $values .= ', \'' . $value . '\'';
++    //       }
++    //     }
++
++    //     // Use the same sneaky string replace trick once more.
++    //     $count_query = str_replace("WHERE", 'WHERE node.type IN (' . $values . ') AND', $count_query);
++    //   }
++    // }
+ 
+     // Apply the same query transformations as view::execute() does.
+-    $count_query = db_rewrite_sql($count_query, $temp_view->base_table, $temp_view->base_field, array('view' => &$temp_view));
+-    $count_query = 'SELECT COUNT(*) FROM (' . $count_query . ') count_alias';
++    // $count_query = db_rewrite_sql($count_query, $temp_view->base_table, $temp_view->base_field, array('view' => &$temp_view));
++    // $count_query = 'SELECT COUNT(*) FROM (' . $count_query . ') count_alias';
+ 
+     // Execute the count query.
+     // TODO Please convert this statement to the D7 database API syntax.
+-    $count[$current_view->name][$item] = db_query($count_query, $args)->fetchField();
++    // $count[$current_view->name][$item] = db_query($count_query, $args)->fetchField();
+   }
+-
+-  return $count[$current_view->name][$item];
++}  */
++  return 1;
++  // return $count[$current_view->name][$item];
+ }
+ 
+ /**
+diff --git a/modules/hs_taxonomy_views_handler_filter_term_node_tid.inc b/modules/hs_taxonomy_views_handler_filter_term_node_tid.inc
+index 1f1a4c6..060c794 100644
+--- a/modules/hs_taxonomy_views_handler_filter_term_node_tid.inc
++++ b/modules/hs_taxonomy_views_handler_filter_term_node_tid.inc
+@@ -8,9 +8,27 @@
+ 
+ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filter_term_node_tid {
+ 
+-  function init(&$view, $options) {
++  function init(&$view, &$options) {
+     parent::init($view, $options);
+-
++    // @TODO Support non exposed filters.
++    $vocabulary = taxonomy_vocabulary_machine_name_load($this->options['vocabulary']);
++    if( array_key_exists($options['expose']['identifier'], $_GET) ) {
++        $parent_term = $_GET[$options['expose']['identifier']];
++        $term = taxonomy_term_load($parent_term);
++        $tids = array();
++        if(!$parent_term) {
++          $tree = taxonomy_get_tree($vocabulary->vid);
++        } else {
++          $tree = _hs_taxonomy_hierarchical_select_get_tree($vocabulary->vid, $term->tid);
++          $tids = array($term->tid => $term->tid);
++        }
++        foreach ($tree as $descendant) {
++          $tids[$descendant->tid] = $descendant->tid;
++        }
++        $this->value[] = $tids;
++    } else {
++      $this->value = array();
++    }
+     // The following code should logically be wrapped in a
+     //   $this->select_type_is_hierarchical_select()
+     // check. However, if we'd do this, you wouldn't be able to dynamically
+@@ -23,17 +41,37 @@ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filte
+     // code below in such a check.
+ 
+     // Add JS and CSS required for Hierarchical Select to work.
+-    _hierarchical_select_setup_js();
++    // @TODO uncomment
++//     _hierarchical_select_setup_js();
+ 
+     // Ensure that Drupal.HierarchicalSelect.prepareGETSubmit() gets called.
+     require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'hierarchical_select') . '/includes/common.inc';
+-    hierarchical_select_common_add_views_js();
++    // @TODO uncomment
++//     hierarchical_select_common_add_views_js();
+   }
+ 
+   function value_form(&$form, &$form_state) {
+     // Support limiting of vocabulary by the vocabulary's module name (this is
+     // possible when a vocabulary is exported/defined as a feature, see
+     // http://drupal.org/node/789556) or by the vocabulary's vid.
++//     if( array_key_exists($this->options['relationship'], $form_state['input']) ) {
++//         $parent_term = $form_state['input'][$this->options['relationship']];
++//         $term = taxonomy_term_load($parent_term);
++//     	$vocabulary = taxonomy_vocabulary_machine_name_load($this->options['vocabulary']);
++//         $tids = array();
++//         if(!$parent_term) {
++//           $tree = taxonomy_get_tree($vocabulary->vid);
++//         } else {
++//           $tree = _hs_taxonomy_hierarchical_select_get_tree($vocabulary->vid, $term->tid);
++//           $tids = array($term->tid => $term->tid);
++//         }
++//         foreach ($tree as $descendant) {
++//           $tids[$descendant->tid] = $descendant->tid;
++//         }
++//         $this->value[] = $tids;
++//     } else {
++//       $this->value = array();
++//     }
+     if (isset($this->options['limit_by']) && $this->options['limit_by'] == 'module') {
+       foreach (taxonomy_get_vocabularies() as $vid => $vocab) {
+         if ($vocab->module == $this->options['module']) {
+@@ -43,29 +81,28 @@ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filte
+       }
+     }
+     else {
+-      $vocabulary = taxonomy_vocabulary_load($this->options['vid']);
++      $vocabulary = taxonomy_vocabulary_machine_name_load($this->options['vocabulary']);
+     }
+ 
+     $view_name  = $this->view->name;
+     $filter_id  = $this->options['id'];
+     $display_id = _hs_taxonomy_views_get_display_id_for_filter($this->view, $filter_id);
+-    $optional   = $this->options['expose']['optional'];
++    $required   = $this->options['expose']['required'];
+ 
+     $config_id = "taxonomy-views-$view_name-$display_id-$filter_id";
+ 
+-    // When not exposed: settings form.
+-    if (empty($form_state['exposed'])) {
+-      // When the 'Selection type' is 'Hierarchical Select', user our own
+-      // value_form, otherwise use the parent's class form.
+-      if ($this->options['type'] == 'textfield' || $this->options['type'] == 'select') {
++    // When the 'Selection Type' isn't 'Hierachical Select' use
++    // parent's form.
++    if (!$this->select_type_is_hierarchical_select()) {
+         parent::value_form($form, $form_state);
+-      }
+-      else {
++    }
++    else {
++      if (!$this->is_exposed()) {
+         $config = hierarchical_select_common_config_get($config_id);
+         $form['value'] = array(
+           '#type'          => 'hierarchical_select',
+           '#title'         => t('Select terms from vocabulary @voc', array('@voc' => $vocabulary->name)),
+-          '#default_value' => !empty($this->value) ? $this->value : array(),
++          '#default_value' => $this->value,
+           '#config' => array(
+             'module' => 'hs_taxonomy',
+             'params' => array(
+@@ -95,27 +132,23 @@ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filte
+           ),
+         );
+       }
+-    }
+-    // When exposed: filter form.
+-    else {
+-      // When the 'Selection type' is 'Hierarchical Select', user our own
+-      // value_form, otherwise use the parent's class form.
+-      if (!$this->select_type_is_hierarchical_select()) {
+-        parent::value_form($form, $form_state);
+-      }
++      // When exposed: filter form.
+       else {
++        drupal_add_js(drupal_get_path('module', 'hierarchical_select').'/includes/views.js');
+         $default_value = (isset($this->value) && !empty($this->value)) ? $this->value : array();
+ 
+         // Basic settings for the form item.
+         $form['value']['#type']          = 'hierarchical_select';
+         $form['value']['#default_value'] = $default_value;
+-        $form['value']['#required']      = !((bool) $optional);
++        $form['value']['#required']      = ((bool) $required);
++
++        $form['value']['#ajax'] = NULL;
+ 
+         // Apply the Hierarchical Select configuration to the form item.
+         $defaults_override = array(
+          'module' => 'hs_taxonomy_views',
+          'params' => array(
+-           'optional'    => (bool) $optional,
++            'required'    => !((bool) $required),
+            'filter_id'   => $filter_id,
+            'vid'         => $vocabulary->vid,
+            'exclude_tid' => NULL,
+@@ -150,15 +183,11 @@ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filte
+   function extra_options_form(&$form, &$form_state) {
+     parent::extra_options_form($form, $form_state);
+ 
+-    $form['type'] = array(
+-      '#type'    => 'radios',
+-      '#title'   => t('Selection type'),
+-      '#options' => array(
+-        'select'              => t('Dropdown'),
+-        'textfield'           => t('Autocomplete'),
+-        'hierarchical_select' => t('Hierarchical Select'),
+-      ),
+-      '#default_value' => $this->options['type'],
++    $form['type']['#options'] = array_merge(
++      $form['type']['#options'],
++      array(
++        'hierarchical_select' => t('Hierarchical Select')
++      )
+     );
+ 
+     $filter_id  = $form_state['id'];
+@@ -168,7 +197,7 @@ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filte
+       '#markup'      => l(t('Configure Hierarchical Select'), _hs_taxonomy_views_config_path($this->view->name, $display_id, $filter_id)),
+       '#suffix'     => '</div></div>',
+       // Doesn't work because #process is not called for #type = markup form items.
+-      '#process'    => array('views_process_dependency'),
++      '#process'    => array('ctools_dependent_process'),
+       '#dependency' => array('radio:options[type]' => array('hierarchical_select')),
+       // Set #input = TRUE so that #process will be called.
+       '#input'      => TRUE,
+@@ -234,7 +263,7 @@ class hs_taxonomy_views_handler_filter_term_node_tid extends views_handler_filte
+   }
+ 
+   function admin_summary() {
+-    $this->value = (array) $this->value;
++    $this->value = NULL;
+     return parent::admin_summary();
+   }
+ 

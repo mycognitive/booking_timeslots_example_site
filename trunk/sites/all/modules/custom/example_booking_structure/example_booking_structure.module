@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the example_booking_structure feature.
+ */
+
+include_once 'example_booking_structure.features.inc';

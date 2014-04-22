@@ -1,0 +1,105 @@
+<?php
+/**
+ * @file
+ * Database schema, installation and upgrade hooks for the opening hours module.
+ */
+
+/**
+ * Implements of hook_schema().
+ */
+function opening_hours_schema() {
+  $schema = array();
+
+  $schema['opening_hours'] = array(
+    'description' => 'A single opening hours instance, ie. an open period on a specific date.',
+    'fields' => array(
+      'instance_id' => array(
+        'description' => 'The primary identifier for an opening hours instance.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'nid' => array(
+        'description' => 'The {node}.nid for the content this opening hours instance belongs to.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'date' => array(
+        'description' => 'The date this opening hours instance is valid for.',
+        'type' => 'text',
+        'pgsql_type' => 'date',
+        'mysql_type' => 'date',
+        'not null' => TRUE,
+      ),
+      'start_time' => array(
+        'description' => 'The time this opening hours instance starts.',
+        'type' => 'text',
+        'pgsql_type' => 'time',
+        'mysql_type' => 'time',
+        'not null' => TRUE,
+      ),
+      'end_time' => array(
+        'description' => 'The time this opening hours instance ends.',
+        'type' => 'text',
+        'pgsql_type' => 'time',
+        'mysql_type' => 'time',
+        'not null' => TRUE,
+      ),
+      'notice' => array(
+        'description' => 'An optional note that signifies something special about this opening hours instance',
+        'type' => 'varchar',
+        'length' => 255,
+      ),
+      'repeat_rule' => array(
+        'description' => 'What repeat rule (if any) was used for this opening hours instance.',
+        'type' => 'varchar',
+        'length' => 255,
+      ),
+      'repeat_end_date' => array(
+        'description' => 'The date the repeating rule ends.',
+        'type' => 'text',
+        'pgsql_type' => 'date',
+        'mysql_type' => 'date',
+      ),
+      'original_instance_id' => array(
+        'description' => 'The {opening_hours}.instance_id for the original instance, which this instance is a repeat of.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+      ),
+      'customised' => array(
+        'description' => 'Boolean indicating whether this instance has been modified, so it differs from its original instance. Not applicable (NULL) for instances that have no original instance.',
+        'type' => 'int',
+        'size' => 'tiny',
+      ),
+    ),
+    'primary key' => array('instance_id'),
+    'unique keys' => array(
+      'nid_date_time' => array('nid', 'date', 'start_time', 'end_time'),
+    ),
+    'indexes' => array(
+      'nid_date' => array('nid', 'date'),
+      'original_custom' => array('original_instance_id', 'customised'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements of hook_install().
+ */
+function opening_hours_install() {
+  // By default, we want to use the admin theme for our interface. This
+  // requires admin_theme module to work properly in Drupal 6.
+  variable_set('admin_theme_opening_hours_opening_hours', 1);
+}
+
+/**
+ * Implements of hook_uninstall().
+ */
+function opening_hours_uninstall() {
+  // Delete any variables we have set.
+  variable_del('admin_theme_opening_hours_opening_hours');
+  db_query("DELETE FROM variable WHERE name LIKE 'opening_hours_%'");
+}

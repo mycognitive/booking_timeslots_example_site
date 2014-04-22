@@ -1,0 +1,831 @@
+<?php
+// $Id: $
+
+/**
+ * @file
+ * Records Activity across the site and surfaces that to Views.
+ */
+
+/**
+ * Activity is not published.
+ */
+define('ACTIVITY_NOT_PUBLISHED', 0);
+
+/**
+ * Activity is published.
+ */
+define('ACTIVITY_PUBLISHED', 1);
+
+/**
+ * Implements hook_menu().
+ */
+function activity_menu() {
+  $items['activity/%/delete'] = array(
+    'title' => 'Delete',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('activity_delete_confirm', 1),
+    'access callback' => 'activity_delete_access',
+    'access arguments' => array(1),
+    'file' => 'activity.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/activity/weight'] = array(
+    'title' => 'Fix Trigger weight',
+    'page callback' => 'activity_fix_trigger_weight',
+    'file' => 'activity.install',
+    'access arguments' => array('administer activity'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/structure/activity'] = array(
+    'title' => 'Activity Templates',
+    'description' => 'Modify how your activity messages will look',
+    'page callback' => 'activity_admin_overview',
+    'access arguments' => array('administer activity'),
+    'file' => 'activity.admin.inc',
+  );
+  $items['admin/structure/activity/list'] = array(
+    'title' => 'List',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/structure/activity/create'] = array(
+    'title' => 'Create',
+    'description' => 'Modify how your activity messages will look',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('activity_create_form'),
+    'access arguments' => array('administer activity'),
+    'file' => 'activity.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+  );
+  $items['admin/config/content/activity'] = array(
+    'title' => 'Activity',
+    'description' => 'Modify the settings for how activity behaves',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('activity_settings_form'),
+    'access arguments' => array('administer activity'),
+    'file' => 'activity.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/config/content/activity/settings'] = array(
+    'title' => 'Settings',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/structure/activity/configure/%activity_handler'] = array(
+    'title' => 'Edit',
+    'description' => 'Modify how your activity messages will look',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('activity_configure_handler_form', 4),
+    'access arguments' => array('administer activity'),
+    'file' => 'activity.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/structure/activity/recreate/%activity_handler_batchable/%'] = array(
+    'title' => 'Recreate Messages',
+    'description' => 'Recreate messages for the provided action',
+    'page callback' => 'activity_admin_recreate',
+    'page arguments' => array(4),
+    'access callback' => 'activity_batch_access',
+    'access arguments' => array(4, 5),
+    'file' => 'activity.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/structure/activity/delete/%actions'] = array(
+    'title' => 'Delete',
+    'description' => 'Remove an activity action and associated trigger assignment',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('activity_actions_delete_form', 4),
+    'access arguments' => array('administer activity'),
+    'file' => 'activity.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/structure/activity/regenerate/%activity_handler_batchable/%'] = array(
+    'title' => 'Create new Messages',
+    'description' => 'Delete messages for the provided action and create new ones',
+    'page callback' => 'activity_batch_regenerate',
+    'page arguments' => array(4),
+    'access callback' => 'activity_batch_access',
+    'access arguments' => array(4, 5),
+    'file' => 'activity.admin.inc',
+  ); 
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function activity_permission() {
+  return array(
+    'administer activity' => array(
+      'title' => t('Administer Activity'), 
+      'description' => t('Perform administration tasks for Activity.'),
+    ),
+    'delete own activity' => array(
+      'title' => t('Delete own Activity'),
+      'description' => t('Delete their own Activity from the site.'),
+    ),
+  );
+}
+
+/**
+ * Menu Access callback for delete Activity.
+ *
+ * @param int $aid
+ *  The activity id for the activity
+ *
+ * @return boolean
+ *  Whether or not the currently logged in user can delete
+ *  the specified Activity.
+ */
+function activity_delete_access($aid) {
+  if (user_access('administer activity')) {
+    return TRUE;
+  }
+  if (user_access('delete own activity')) {
+    $uid = db_query("SELECT uid FROM {activity} WHERE aid = :aid", array(':aid' => $aid))->fetchField();
+    return $uid == $GLOBALS['user']->uid;
+  }
+  return FALSE;
+}
+
+/**
+ * Load an Activity Handler from an aid.
+ *
+ * @param $aid
+ *  {actions}.aid that holds the configuration information.
+ */
+function activity_handler_load($aid) {
+  $hook = db_query("SELECT hook FROM {trigger_assignments} WHERE aid = :aid", array(":aid" => $aid))->fetchField();
+  if (!empty($hook)) {
+    $action_record = actions_load($aid);
+    $action_record = drupal_unpack($action_record, 'parameters');
+    $handler = activity_load_handler($hook);
+    $handler->templates = $action_record->templates;
+    $handler->options = $action_record->options;
+    $handler->actions_id = $action_record->aid;
+    $handler->label = $action_record->label;
+
+    return $handler;
+  }
+  return FALSE;
+}
+
+/**
+ * Load a batchable Activity Handler from an aid.
+ *
+ * @param $aid
+ *   {actions}.aid that holds the configuration information.
+ */
+function activity_handler_batchable_load($aid) {
+  $handler = activity_handler_load($aid);
+  if (!empty($handler) && $handler->batch) {
+    return $handler;
+  }
+  return FALSE;
+}
+
+/**
+ * Access callback for batch access
+ *
+ * @param $action
+ *   The action row from {actions} table.
+ * @param $token
+ *   Token used for security protection.
+ */
+function activity_batch_access($action, $token) {
+  return user_access('administer activity') && drupal_valid_token($token, $action->actions_id);
+}
+
+/**
+ * Action Callback.
+ */
+function activity_record($object, $context, $a1, $a2) {
+  if (isset($context['aid'])) {
+    $handler = activity_handler_load($context['aid']);
+    $eid = $handler->determineEid($context);
+    if (isset($eid)) {
+      activity_save_activity($handler, $eid, $a1, $a2);
+    }
+  }
+}
+
+/**
+ * Write all required db records for a new activity.
+ *
+ * @param ActivityActionHandler $handler
+ *   The handler for this action.
+ * @param int $eid
+ *   The entity id for this action.
+ * @param mixed $a1
+ *   The first argument passed to the action handler.
+ * @param mixed $a2
+ *   The second argument passed to the action handler.
+ */
+function activity_save_activity(ActivityActionHandler $handler, $eid, $a1, $a2) {
+  $objects = $handler->loadObjects($eid);
+  drupal_alter('activity_objects', $objects, $handler->type);
+  $uid = $handler->determineActor($objects);
+  $timestamp = $handler->determineTimestamp($objects);
+
+  if ($handler->valid($eid, $uid, $timestamp, $objects, $a1, $a2)) {
+    $messages = $handler->tokenize($objects);
+    $nid = $handler->determineNid($objects);
+
+    $argument1 = NULL;
+    $argument2 = NULL;
+    if (isset($a1)) {
+      $argument1 = serialize($a1);
+    }
+    if (isset($a2)) {
+      $argument2 = serialize($a2);
+    }
+
+    // Recording one Activity is a number of different database inserts and
+    // this makes all the database inserts into one transaction.
+    $txn = db_transaction();
+
+    // Write to {activity} table.
+    $record = array(
+      'uid' => $uid,
+      'type' => $handler->type,
+      'nid' => $nid,
+      'eid' => $eid,
+      'created' => $timestamp,
+      'actions_id' => $handler->actions_id,
+      'argument1' => $argument1,
+      'argument2' => $argument2,
+      'status' => $handler->isPublished($objects, $uid) ? ACTIVITY_PUBLISHED : ACTIVITY_NOT_PUBLISHED,
+    );
+    $record = (object) $record;
+    drupal_alter('activity_record', $record, $handler);
+    drupal_write_record('activity', $record);
+
+    drupal_alter('activity_messages', $messages, $handler->name, $objects);
+
+    // Write messages to {activity_messages} table.
+    activity_write_messages($messages, $record->aid);
+
+    foreach (activity_get_grants($record) as $realm => $values) {
+      foreach ($values as $value) {
+        $row = array(
+          'aid' => $record->aid,
+          'realm' => $realm,
+          'value' => $value,
+        );
+        drupal_write_record('activity_access', $row);
+      }
+    }
+  }
+}
+
+
+/**
+ * Creates new messages for a set of activity records.
+ *
+ * @param array $records
+ *   An array of {activity} rows.
+ */
+function activity_recreate_messages(array $records) {
+  foreach ($records as $record) {
+    // Load the handler and check it its batchable.
+    $handler = activity_handler_load($record->actions_id);
+    if ($handler->batch) {
+      $amids = db_query("SELECT amid FROM {activity_targets} WHERE aid = :aid", array(":aid" => $record->aid))->fetchCol();
+
+      if (!empty($amids)) {
+        db_delete('activity_targets')
+          ->condition('amid', $amids, 'IN')
+          ->execute();
+        db_delete('activity_messages')
+          ->condition('amid', $amids, 'IN')
+          ->execute();
+      }
+
+      $objects = $handler->loadObjects($record->eid);
+      drupal_alter('activity_objects', $objects, $handler->type);
+      $a1 = NULL;
+      $a2 = NULL;
+      if (isset($record->argument1)) {
+        $a1 = unserialize($record->argument1);
+      }
+      if (isset($record->argument2)) {
+        $a2 = unserialize($record->argument2);
+      }
+
+      // If the handler is valid, create the new messages, otherwise delete the
+      // record of the activity.
+      if ($handler->valid($record->eid, $record->uid, $record->created, $objects, $a1, $a2)) {
+        activity_write_messages($handler->tokenize($objects), $record->aid);
+      }
+      else {
+        // Delete the activity.
+        db_delete('activity')
+          ->condition('aid', $record->aid)
+          ->execute();
+      }
+    }
+  }
+}
+
+/**
+ * Writes the provided messages to the activity tables.
+ *
+ * @param array $messages
+ *   The messages to write keyed by language and uid.
+ * @param int $aid
+ *   The {activity}.aid field.
+ */
+function activity_write_messages($messages, $aid) {
+  foreach ($messages as $language_id => $language_messages) {
+    foreach ($language_messages as $uid => $message) {
+      // write the message away first to get the amid.
+      $message_record = new stdClass();
+      $message_record->message = $message;
+      drupal_write_record('activity_messages', $message_record);
+
+      // now save the target with the amid from above ^^.
+      $target_record = array(
+        'aid' => $aid,
+        'uid' => $uid,
+        'language' => $language_id,
+        'amid' => $message_record->amid,
+      );
+      drupal_write_record('activity_targets', $target_record);
+    }
+  }
+}
+
+/**
+ * Update {activity} records status based on a new event.
+ *
+ * @param array $activity_records
+ *   an array of activity records.
+ */
+function activity_update_status($activity_records) {
+  // Use this array to group the Activities by status so one query per status.
+  $updated_activity = array();
+
+  foreach ($activity_records as $record) {
+    $status = ACTIVITY_PUBLISHED;
+
+    // Figure out if the status should be 1 or 0.
+    $handler = activity_handler_load($record->actions_id);
+    $objects = $handler->loadObjects($record->eid);
+    drupal_alter('activity_objects', $objects, $handler->type);
+
+    if (!$handler->isPublished($objects, $record->uid)) {
+      $status = ACTIVITY_NOT_PUBLISHED;
+    }
+
+    $updated_activity[$status][] = $record->aid;
+  }
+
+  // Update each activity to their new status.
+  foreach ($updated_activity as $status => $aids) {
+    db_update('activity')
+      ->fields(array(
+          'status' => $status,
+        ))
+      ->condition('aid', $aids, 'IN')
+      ->execute();
+  }
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function activity_views_api() {
+  return array(
+    'api' => '3.0-alpha1',
+    'path' => drupal_get_path('module', 'activity') . '/views',
+  );
+}
+
+/**
+ * Implements hook_activity_api().
+ */
+function node_activity_api() {
+  return array(
+    'api' => '3.0-alpha1',
+    'realms' => array(
+      'node_author' => array(
+        'name' => 'Node Author',
+      ),
+    ),
+    'hooks' => array(
+      'node_insert' => array(
+        'batch' => TRUE,
+        'handler' => 'NodeActivityActionHandler',
+        'name' => 'Node Insert',
+      ),
+      'node_view' => array(
+        // The current_user key can be replaced with the user loaded from
+        // {history} table.
+        'batch' => FALSE,
+        'handler' => 'NodeActivityActionHandler',
+        'name' => 'Node View',
+      ),
+      'node_update' => array(
+        'batch' => FALSE,
+        'handler' => 'NodeActivityActionHandler',
+        'name' => 'Node Update',
+      ),
+    ),
+    // Move the activity hooks into a seperate file.
+    'file' => drupal_get_path('module', 'activity') . '/modules/node.activity.inc',
+  );
+}
+
+/**
+ * Implements hook_activity_api().
+ */
+function comment_activity_api() {
+  return array(
+    'api' => '3.0-alpha1',
+    'realms' => array(
+      'comment' => array(
+        'name' => 'Comment',
+      ),
+    ),
+    'hooks' => array(
+      'comment_insert' => array(
+        'batch' => TRUE,
+        'handler' => 'CommentActivityActionHandler',
+        'name' => 'Comment Insert',
+      ),
+    ),
+    // Move the activity hooks into a seperate file.
+    'file' => drupal_get_path('module', 'activity') . '/modules/comment.activity.inc',
+  );
+}
+
+/**
+ * Implements hook_activity_api().
+ */
+function user_activity_api() {
+  return array(
+    'api' => '3.0-alpha1',
+    'hooks' => array(
+      'user_insert' => array(
+        'batch' => TRUE,
+        'handler' => 'UserActivityActionHandler',
+        'name' => 'User Register',
+      ),
+      'user_update' => array(
+        'batch' => FALSE,
+        'handler' => 'UserActivityActionHandler',
+        'name' => 'User Update',
+      ),
+      'user_login' => array(
+        'batch' => FALSE,
+        'handler' => 'UserActivityActionHandler',
+        'name' => 'User Login',
+      ),
+      'user_logout' => array(
+        'batch' => FALSE,
+        'handler' => 'UserActivityActionHandler',
+        'name' => 'User Logout',
+      ),
+    ),
+  );
+}
+
+/**
+ * Delete a set of Activities.
+ *
+ * @param array $aids
+ *   An array of {activity}.aid.
+ *
+ * @return array
+ *   An array with two keys 'activities' and 'messages' whose values are the
+ *   count of records deleted.
+ */
+function activity_delete($aids) {
+  $amids = array();
+  $count_activities = 0;
+  $count_messages = 0;
+  if (!empty($aids)) {
+    $amids = db_query("SELECT amid FROM {activity_targets} WHERE aid IN (:aids)", array(':aids' => $aids))->fetchCol();
+  }
+
+  if (!empty($amids)) {
+    db_delete('activity_targets')
+      ->condition('amid', $amids, 'IN')
+      ->execute();
+    $count_messages = db_delete('activity_messages')
+      ->condition('amid', $amids, 'IN')
+      ->execute();
+  }
+
+  if (!empty($aids)) {
+    $count_activities = db_delete('activity')
+      ->condition('aid', $aids, 'IN')
+      ->execute();
+  }
+
+  return array('activities' => $count_activities, 'messages' => $count_messages);
+}
+
+/**
+ * Load a Handler for a given hook.
+ *
+ * @param $hook
+ *   The hook associated with the handler.
+ *
+ * @return ActivityActionHandler
+ */
+function activity_load_handler($hook) {
+  $hooks = activity_cache_get('hooks');
+  $handler = new $hooks[$hook]['handler'];
+
+  $handler->type = $hook;
+  $handler->batch = $hooks[$hook]['batch'];
+  return $handler;
+}
+
+/**
+ * helper function to get the enabled languages
+ *
+ * @return array
+ * array with the keys as the short id of the language (i.e. en)
+ */
+function activity_enabled_languages() {
+  $languages = language_list('enabled');
+  return $languages[1];
+}
+
+/**
+ * Return all the grants for a given activity.
+ *
+ * @param stdClass $record
+ * the database record for the activity table
+ *
+ * @return array
+ * The grant records for this activity
+ * 
+ */
+function activity_get_grants($record) {
+  $record = (object) $record;
+  $grants = array();
+  $realms = activity_cache_get('realms');
+
+  foreach ($realms as $realm_id => $information) {
+    $module_grants = module_invoke($information['module'], 'activity_grants', $record);
+    foreach ($module_grants as $realm => $values) {
+      if (in_array($realm, array_keys($realms))) {
+        $grants[$realm] = $values;
+      }
+    }
+  }
+  // allow other modules to override what is recorded
+  drupal_alter('activity_access_records', $grants, $record);
+
+  return $grants;
+}
+
+/**
+ * Option callback used to present the available hooks.
+ */
+function activity_form_options_hooks() {
+  $hooks = activity_cache_get('hooks');
+  $hook_options = array();
+  foreach ($hooks as $hook => $information) {
+    $hook_options[$hook] = t($information['name']);
+  }
+
+  return $hook_options;
+}
+
+// CRUD Functions
+function activity_cache_get($type) {
+  $api_information = activity_cache_api_load();
+  return $api_information[$type];
+}
+
+function activity_cache_api_load() {
+  $info_cache = &drupal_static(__FUNCTION__);
+  if (empty($info_cache)) {
+    $info_cache = array('realms' => array(), 'hooks' => array(), 'all_realms' => array());
+    foreach (module_implements('activity_api') as $module) {
+      $module_result = module_invoke($module, 'activity_api');
+      // @TODO: use version_compare: http://php.net/manual/en/function.version-compare.php
+      if ($module_result['api'] == '3.0-alpha1') {
+        $module_result += array('realms' => array(), 'hooks' => array());
+        foreach ($module_result['realms'] as $realm => $data) {
+          $module_result['realms'][$realm] += array('module' => $module);
+        }
+
+        $info_cache['hooks'] += $module_result['hooks'];
+        $info_cache['realms'] += $module_result['realms'];
+        $info_cache['all_realms'] += $module_result['realms'];
+
+        if (isset($module_result['file'])) {
+          require_once './' . $module_result['file'];
+        }
+      }
+
+      $enabled_realms = variable_get('activity_access_realms', array('node_author'));
+      if (!empty($enabled_realms)) {
+        foreach (array_diff(array_keys($info_cache['realms']), $enabled_realms) as $key) {
+          unset($info_cache['realms'][$key]);
+        }
+      }
+    }
+    drupal_alter('activity_api', $info_cache);
+  }
+
+  return $info_cache;
+}
+
+/**
+ * Implements hook_user_update().
+ */
+function activity_user_update(&$edit, $account, $category) {
+  entity_load('user', array(), array(), TRUE);
+
+  $records = db_query("SELECT * FROM {activity} WHERE uid = :uid", array(":uid" => $account->uid))->fetchAll();
+
+  // Recreate the messages with this new user information.
+  activity_recreate_messages($records);
+
+  // Mark all activities by this user as published / unpublished based on user
+  // status.
+  activity_update_status($records);
+}
+
+/**
+ * Implements hook_user_delete().
+ */
+function activity_user_delete($account) {
+  $aids = db_query("SELECT aid FROM {activity} WHERE uid = :uid", array(":uid" => $account->uid))->fetchCol();
+  activity_delete($aids);
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function activity_node_update($node) {
+  entity_load('node', array(), array(), TRUE);
+
+  // Recreate the messages with the new node information.
+  $records = db_query("SELECT * FROM {activity} WHERE nid = :nid", array(":nid" => $node->nid))->fetchAll();
+  activity_recreate_messages($records);
+
+  // Update the published / unpublished status field.
+  activity_update_status($records);
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function activity_node_delete($node) {
+  $aids = db_query("SELECT aid FROM {activity} WHERE nid = :nid", array(':nid' => $node->nid))->fetchCol();
+  activity_delete($aids);
+}
+
+/**
+ * Implements hook_comment_update().
+ */
+function activity_comment_update($comment) {
+  entity_load('comment', array(), array(), TRUE);
+
+  // Recreate the messages.
+  $records = db_query("SELECT * FROM {activity} WHERE type IN (:types) AND eid = :eid", array(":types" => array('comment_insert'), ":eid" => $comment->cid))->fetchAll();
+  activity_recreate_messages($records);
+
+  // Mark comments as published / unpublished.
+  activity_update_status($records);
+}
+
+/**
+ * Implements hook_comment_delete().
+ */
+function activity_comment_delete($comment) {
+  $aids = db_query("SELECT aid FROM {activity} WHERE type IN (:types) AND eid = :eid", array(":types" => array('comment_insert'), ":eid" => $comment->cid))->fetchCol();
+  activity_delete($aids);
+}
+
+/**
+ * Implements hook_theme().
+ */
+function activity_theme($existing, $type, $theme, $path) {
+  return array(
+    'activity_settings_actions_list' => array(
+      'variables' => array('results' => NULL),
+    ),
+    'activity_token_help' => array(
+      'variables' => array('types' => NULL, 'prefix' => NULL, 'suffix' => NULL),
+    ),
+    'activity_username' => array(
+      'variables' => array('account' => NULL),
+    ),
+  );
+}
+
+/**
+ * Theme function to display a list of available activity actions.
+ */
+function theme_activity_settings_actions_list($vars) {
+  $header = array(t('Label'), t('Hook'), t('Operations'));
+  $hooks = activity_cache_get('hooks');
+  foreach ($vars['results'] as $result) {
+    $handler = activity_handler_load($result->aid);
+    $operations = array(
+      l(t('configure'), 'admin/structure/activity/configure/'. $result->aid),
+      l(t('delete'), 'admin/structure/activity/delete/'. $result->aid),
+    );
+
+    if ($handler->batch) {
+      $operations[] = l(t('update messages'), 'admin/structure/activity/recreate/' . $result->aid . '/' . drupal_get_token($result->aid));
+      $operations[] = l(t('regenerate messages'), 'admin/structure/activity/regenerate/' . $result->aid . '/' . drupal_get_token($result->aid));
+    }
+
+    $rows[] = array(
+      $result->label,
+      $hooks[$result->hook]['name'],
+      implode(' | ', $operations),
+    );
+  }
+  $output = theme('table', array('header' => $header, 'rows' => $rows));
+  return $output;
+}
+
+/**
+ * Theme function to return username.
+ * This allows us to theme the username separately for activity feeds then the
+ * rest of the site.
+ */
+function theme_activity_username($variables) {
+  if (isset($variables['link_path'])) {
+    // We have a link path, so we should generate a link using l().
+    // Additional classes may be added as array elements like
+    // $variables['link_options']['attributes']['class'][] = 'myclass';
+    $output = l($variables['name'] . $variables['extra'], $variables['link_path'], $variables['link_options']);
+  }
+  else {
+    // Modules may have added important attributes so they must be included
+    // in the output. Additional classes may be added as array elements like
+    // $variables['attributes_array']['class'][] = 'myclass';
+    $output = '<span' . drupal_attributes($variables['attributes_array']) . '>' . $variables['name'] . $variables['extra'] . '</span>';
+  }
+  return $output;
+}
+
+function template_preprocess_activity_username(&$variables) {
+  $account = $variables['account'];
+
+  $variables['extra'] = '';
+  if (empty($account->uid)) {
+    $variables['uid'] = 0;
+  }
+  else {
+    $variables['uid'] = (int) $account->uid;
+  }
+
+  // Set the name to a formatted name that is safe for printing and
+  // that won't break tables by being too long. Keep an unshortened,
+  // unsanitized version, in case other preprocess functions want to implement
+  // their own shortening logic or add markup. If they do so, they must ensure
+  // that $variables['name'] is safe for printing.
+  $name = $variables['name_raw'] = format_username($account);
+  if (drupal_strlen($name) > 20) {
+    $name = drupal_substr($name, 0, 15) . '...';
+  }
+  $variables['name'] = check_plain($name);
+
+  $variables['profile_access'] = TRUE;
+  $variables['link_attributes'] = array();
+  // Populate link path and attributes if appropriate.
+  if ($variables['uid'] && $variables['profile_access']) {
+    // We are linking to a local user.
+    $variables['link_attributes'] = array('title' => t('View user profile.'));
+    $variables['link_path'] = 'user/' . $variables['uid'];
+  }
+  elseif (!empty($account->homepage)) {
+    // Like the 'class' attribute, the 'rel' attribute can hold a
+    // space-separated set of values, so initialize it as an array to make it
+    // easier for other preprocess functions to append to it.
+    $variables['link_attributes'] = array('rel' => array('nofollow'));
+    $variables['link_path'] = $account->homepage;
+    $variables['homepage'] = $account->homepage;
+  }
+  // We do not want the l() function to check_plain() a second time.
+  $variables['link_options']['html'] = TRUE;
+  // Set a default class.
+  $variables['attributes_array'] = array('class' => array('username'));
+}
+
+function template_process_activity_username(&$variables) {
+  // Finalize the link_options array for passing to the l() function.
+  // This is done in the process phase so that attributes may be added by
+  // modules or the theme during the preprocess phase.
+  if (isset($variables['link_path'])) {
+    // $variables['attributes_array'] contains attributes that should be applied
+    // regardless of whether a link is being rendered or not.
+    // $variables['link_attributes'] contains attributes that should only be
+    // applied if a link is being rendered. Preprocess functions are encouraged
+    // to use the former unless they want to add attributes on the link only.
+    // If a link is being rendered, these need to be merged. Some attributes are
+    // themselves arrays, so the merging needs to be recursive.
+    $variables['link_options']['attributes'] = array_merge_recursive($variables['link_attributes'], $variables['attributes_array']);
+  }
+}

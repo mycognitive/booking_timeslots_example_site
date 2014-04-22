@@ -1,0 +1,16 @@
+name = Views Flipped Table
+description = Table style with rows and columns flipped.
+package = Views
+core = 7.x
+dependencies[] = views
+
+files[] = views_flipped_table.module
+files[] = views_flipped_table.views.inc
+files[] = views_flipped_table.module
+files[] = views_flipped_table_plugin_style_flipped_table.inc
+; Information added by drupal.org packaging script on 2012-08-16
+version = "7.x-1.0-alpha1+6-dev"
+core = "7.x"
+project = "views_hacks"
+datestamp = "1345122094"
+

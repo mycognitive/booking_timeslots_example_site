@@ -1,0 +1,38 @@
+diff --git a/views_filters_selective/views_filters_selective.module b/views_filters_selective/views_filters_selective.module
+index a88ae0c..f92b0c7 100644
+--- a/views_filters_selective/views_filters_selective.module
++++ b/views_filters_selective/views_filters_selective.module
+@@ -68,7 +68,23 @@ function _views_filter_selective_query($filter, $field_name, $table_name, $oids)
+   $query->init($filter->view->base_table, $filter->view->base_field, $query_options['options']);
+ 
+   if (!empty($filter->options['relationship']) && $filter->options['relationship'] != 'none') {
+-    $table_name = _views_filter_selective_query_relationship($filter->view->relationship[$filter->options['relationship']], $query);
++	$table_name_field = $table_name;
++    $left_table = _views_filter_selective_query_relationship($filter->view->relationship[$filter->options['relationship']], $query);
++    $table_name = $left_table . '_' . $table_name;
++	
++	$join = new views_join();
++    $join->definition = array(
++      'table' => $table_name_field,
++      'field' => 'entity_id',
++      'left_table' => $left_table,
++      'left_field' => 'product_id',
++	  'type' => 'INNER',
++    );
++    
++    $join->construct();
++    
++    $alias = $table_name;
++    $alias = $query->add_relationship($alias, $join, $table_name_field);
+   }
+ 
+   $field_alias = $query->add_field($table_name, $field_name);
+@@ -89,7 +105,7 @@ function _views_filter_selective_query($filter, $field_name, $table_name, $oids)
+  * Helper function to add a relationship to the query.
+  */
+ function _views_filter_selective_query_relationship($relationship, $query) {
+-  $relationship_table = $relationship->table;
++  $relationship_table = $query->add_table($relationship->table);
+ 
+   // Handle additional relationships recursively.
+   $link = NULL;

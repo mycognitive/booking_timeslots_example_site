@@ -1,0 +1,368 @@
+<?php
+// $Id: $
+class ActivityWebTest extends DrupalWebTestCase {
+  public static function getInfo() {
+    return array(
+      'name' => t('Activity Core Web tests'),
+      'description' => t('Web tests for the Activity module that require database access.'),
+      'group' => t('Activity'),
+    );
+  }
+
+  public function setUp() {
+    parent::setUp('activity', 'comment');
+  }
+
+ /**
+   * Post comment.
+   *
+   * @param $node
+   *   Node to post comment on.
+   * @param $comment
+   *   Comment body.
+   * @param $subject
+   *   Comment subject.
+   * @param $contact
+   *   Set to NULL for no contact info, TRUE to ignore success checking, and
+   *   array of values to set contact info.
+   */
+  function postComment($node, $comment, $subject = '', $contact = NULL) {
+    $langcode = LANGUAGE_NONE;
+    $edit = array();
+    $edit['comment_body[' . $langcode . '][0][value]'] = $comment;
+
+    $preview_mode = variable_get('comment_preview_article', DRUPAL_OPTIONAL);
+    $subject_mode = variable_get('comment_subject_field_article', 1);
+
+    // Must get the page before we test for fields.
+    if ($node !== NULL) {
+      $this->drupalGet('comment/reply/' . $node->nid);
+    }
+
+    if ($subject_mode == TRUE) {
+      $edit['subject'] = $subject;
+    }
+    else {
+      $this->assertNoFieldByName('subject', '', t('Subject field not found.'));
+    }
+
+    if ($contact !== NULL && is_array($contact)) {
+      $edit += $contact;
+    }
+    switch ($preview_mode) {
+      case DRUPAL_REQUIRED:
+        // Preview required so no save button should be found.
+        $this->assertNoFieldByName('op', t('Save'), t('Save button not found.'));
+        $this->drupalPost(NULL, $edit, t('Preview'));
+        // Don't break here so that we can test post-preview field presence and
+        // function below.
+      case DRUPAL_OPTIONAL:
+        $this->assertFieldByName('op', t('Preview'), t('Preview button found.'));
+        $this->assertFieldByName('op', t('Save'), t('Save button found.'));
+        $this->drupalPost(NULL, $edit, t('Save'));
+        break;
+
+      case DRUPAL_DISABLED:
+        $this->assertNoFieldByName('op', t('Preview'), t('Preview button not found.'));
+        $this->assertFieldByName('op', t('Save'), t('Save button found.'));
+        $this->drupalPost(NULL, $edit, t('Save'));
+        break;
+    }
+    $match = array();
+    // Get comment ID
+    preg_match('/#comment-([0-9]+)/', $this->getURL(), $match);
+
+    // Get comment.
+    if ($contact !== TRUE) { // If true then attempting to find error message.
+      if ($subject) {
+        $this->assertText($subject, 'Comment subject posted.');
+      }
+      $this->assertText($comment, 'Comment body posted.');
+      $this->assertTrue((!empty($match) && !empty($match[1])), t('Comment id found.'));
+    }
+
+    if (isset($match[1])) {
+      return $match[1];
+    }
+  }
+
+  /**
+   * Test that the node activity handler properly loads the node objects.
+   */
+  public function testNodeActivityLoadObjects() {
+    $handler = activity_load_handler('node_insert');
+
+    $handler->options = array('types' => array(), 'view_modes' => array());
+    $handler->actions_id = -1;
+    $handler->label = 'Test node update';
+
+    $node1 = $this->drupalCreateNode(array('type' => 'article'));
+    $node2 = $this->drupalCreateNode(array('type' => 'page', 'status' => 0));
+    $objects1 = $handler->loadObjects($node1->nid);
+    $objects2 = $handler->loadObjects($node2->nid);
+
+    // Make sure loaded objects match what is expected.
+    $this->assertEqual($node1->nid, $objects1['node']->nid, t('Loaded up the correct article node'));
+    $this->assertEqual($node2->nid, $objects2['node']->nid, t('Loaded up the correct page node'));
+  }
+
+  public function testCommentActivityLoadObjects() {
+    $handler = activity_load_handler('comment_insert');
+    $current_user = $this->drupalCreateUser();
+    $this->drupalLogin($current_user);
+
+    $handler->options = array('types' => array(), 'view_modes' => array());
+    $handler->actions_id = -1;
+    $handler->label = 'Test comment insert';
+
+    $node1 = $this->drupalCreateNode(array('type' => 'article'));
+    $cid = $this->postComment($node1, 'test comment');
+
+    $objects1 = $handler->loadObjects($cid);
+
+    // Make sure loaded objects match what is expected.
+    $this->assertEqual($cid, $objects1['comment']->cid, t('Loaded up the correct comment'));
+    $this->assertEqual($node1->nid, $objects1['node']->nid, t('Loaded up correct node'));
+  }
+
+  /**
+   * Test that the node activity handler properly loads the user objects.
+   */
+  public function testUserActivityLoadObjects() {
+    $handler = activity_load_handler('user_insert');
+    $handler->label = 'Test user update';
+    $account = $this->drupalCreateUser();
+
+    $objects1 = $handler->loadObjects($account->uid);
+
+    // Make sure loaded objects match what is expected.
+    $this->assertEqual($account->uid, $objects1['user']->uid, t('Loaded up the correct user account'));
+  }
+}
+
+class ActivityUnitTest extends DrupalUnitTestCase {
+  public static function getInfo() {
+    return array(
+      'name' => t('Activity Core Unit tests'),
+      'description' => t('Unit tests for the Activity module'),
+      'group' => t('Activity'),
+    );
+  }
+
+  public function setUp() {
+    parent::setUp('activity');
+    require_once './' . drupal_get_path('module', 'activity') . '/activity_action_handlers.inc';
+  }
+
+  public function testNodeActivityInsert() {
+    $handler = activity_load_handler('node_insert');
+    $handler->templates = array(
+      'en' => array(
+        'node' => 'Node Author Message',
+        'public' => 'Public Message',
+      ),
+    );
+
+    $handler->options = array('types' => array(), 'view_modes' => array());
+    $handler->actions_id = -1;
+    $handler->label = 'Test node insert';
+
+    $node1 = (object) array(
+      'nid' => 1,
+      'vid' => 1,
+      'uid' => 0, // Avoids the window check, which queries the users table.
+      'type' => 'article',
+      'language' => 'und',
+      'title' => 'Test1',
+      'created' => REQUEST_TIME,
+      'status' => 1,
+    );
+    $node2 =(object) array(
+      'nid' => 2,
+      'vid' => 2,
+      'uid' => 0,
+      'type' => 'page',
+      'language' => 'und',
+      'title' => 'Test2',
+      'created' => REQUEST_TIME,
+      'status' => 0,
+    );
+
+    $objects1 = array('node' => $node1);
+    $objects2 = array('node' => $node2);
+
+    // Make sure loaded objects match what is expected.
+    $this->assertEqual($node1->nid, $objects1['node']->nid, t('Loaded up the correct article node'));
+    $this->assertEqual($node2->nid, $objects2['node']->nid, t('Loaded up the correct page node'));
+
+    // Mock around the valid method.
+    $this->assertTrue($handler->valid($node1->nid, 1, REQUEST_TIME, $objects1, NULL, NULL), t('Activity handler correctly says article node is a valid activity'));
+    $this->assertTrue($handler->valid($node2->nid, 1, REQUEST_TIME, $objects2, NULL, NULL), t('Activity handler correctly says page node is a valid activity'));
+
+    $handler->options['types'] = array('article' => 'article');
+    $this->assertTrue($handler->valid($node1->nid, 1, REQUEST_TIME, $objects1, NULL, NULL), t('Activity handler correctly checks article node type'));
+    $this->assertTrue(!$handler->valid($node2->nid, 1, REQUEST_TIME, $objects2, NULL, NULL), t('Activity handler correctly checks page node type'));
+
+    $handler->options['types'] = array('page' => 'page');
+    $this->assertTrue(!$handler->valid($node1->nid, 1, REQUEST_TIME, $objects1, NULL, NULL), t('Activity handler prevents article from being valid'));
+    $this->assertTrue($handler->valid($node2->nid, 1, REQUEST_TIME, $objects2, NULL, NULL), t('Activity handler properly validates page node'));
+
+    // Ensure the proper eid is returned.
+    $this->assertEqual($node1->nid, $handler->determineEid($objects1), t('Proper Eid is returned'));
+
+    // Ensure the proper actor is returned.
+    $this->assertEqual($node1->uid, $handler->determineActor($objects1), t('Proper Actor id is returned'));
+
+    // Check timestamp.
+    $this->assertEqual($node2->created, $handler->determineTimestamp($objects2), t('Returned proper timestamp'));
+
+    // Check published flag.
+    $this->assertTrue($handler->isPublished($objects1, $node1->uid), t('Correctly flagged activity as published'));
+    $this->assertTrue(!$handler->isPublished($objects2, $node2->uid), t('Correctly flagged activity as not published'));
+
+    $this->assertEqual($handler->determineNid($objects1), $objects1['node']->nid, t('Returned proper nid'));
+
+    // Test tokenize method, which tests getUid.
+    $objects1['node']->uid = 2;
+    $messages = $handler->tokenize($objects1);
+    $this->assertTrue(isset($messages['en']), t('Node insert returns english messages'));
+    $this->assertEqual($messages['en'][$objects1['node']->uid], $handler->templates['en']['node'], t('Node author message is returned'));
+    $this->assertEqual($messages['en'][0], $handler->templates['en']['public'], t('Returned proper public message'));
+  }
+
+  public function testCommentActivityInsert() {
+    $handler = activity_load_handler('comment_insert');
+    $handler->templates = array(
+      'en' => array(
+        'comment' => 'Comment Author Message',
+        'node' => 'Node Author Message',
+        'node_comment' => 'Node and Comment Message',
+        'public' => 'Public Message',
+      ),
+    );
+
+    $handler->options = array('types' => array(), 'view_modes' => array());
+    $handler->actions_id = -1;
+    $handler->label = 'Test comment insert';
+
+    $node1 = (object) array(
+      'nid' => 1,
+      'vid' => 1,
+      'uid' => 0, // Avoids the window check, which queries the users table.
+      'type' => 'article',
+      'language' => 'und',
+      'title' => 'Test1',
+      'created' => REQUEST_TIME,
+      'status' => 1,
+    );
+    $node2 =(object) array(
+      'nid' => 2,
+      'vid' => 2,
+      'uid' => 0,
+      'type' => 'page',
+      'language' => 'und',
+      'title' => 'Test2',
+      'created' => REQUEST_TIME,
+      'status' => 0,
+    );
+
+    $comment1 = (object) array(
+      'cid' => 1,
+      'uid' => 0,
+      'created' => REQUEST_TIME,
+      'status' => 1,
+    );
+    $comment2 = (object) array(
+      'cid' => 1,
+      'uid' => 0,
+      'created' => REQUEST_TIME,
+      'status' => 0,
+    );
+
+    $objects1 = array('node' => $node1, 'comment' => $comment1);
+    $objects2 = array('node' => $node2, 'comment' => $comment2);
+
+    // Ensure the proper eid is returned.
+    $this->assertEqual($comment1->cid, $handler->determineEid($objects1), t('Proper Eid is returned'));
+
+    // Ensure the proper actor is returned.
+    $this->assertEqual($comment1->uid, $handler->determineActor($objects1), t('Proper Actor id is returned'));
+
+    // Check timestamp.
+    $this->assertEqual($comment1->created, $handler->determineTimestamp($objects2), t('Returned proper timestamp'));
+
+    // Check published flag.
+    $this->assertTrue($handler->isPublished($objects1, $comment1->uid), t('Correctly flagged comment activity as published'));
+    $this->assertTrue(!$handler->isPublished($objects2, $comment2->uid), t('Correctly flagged comment activity as not published'));
+
+    $this->assertEqual($handler->determineNid($objects1), $objects1['node']->nid, t('Returned proper nid'));
+
+    // Test to make sure getUid functions properly.
+    $objects1['node']->uid = 2;
+    $objects1['comment']->uid = 3;
+    $messages = $handler->tokenize($objects1);
+    $this->assertTrue(isset($messages['en']), t('English Messages are returned'));
+    $this->assertEqual($messages['en'][$objects1['comment']->uid], $handler->templates['en']['comment'], t('Comment author message is properly returned'));
+    $this->assertEqual($messages['en'][$objects1['node']->uid], $handler->templates['en']['node'], t('Node author message is properly returned'));
+    $this->assertEqual($messages['en'][$objects1['comment']->uid], $handler->templates['en']['comment'], t('Comment author message is properly returned'));
+    $this->assertEqual($messages['en'][0], $handler->templates['en']['public'], t('Properly return the public message'));
+
+    // Check that the comment author == node author case.
+    $objects1['comment']->uid = $objects1['node']->uid;
+    $messages = $handler->tokenize($objects1);
+    $this->assertEqual($messages['en'][$objects1['node']->uid], $handler->templates['en']['node_comment'], t('Comment and Node author message is properly handled'));
+    
+  }
+
+  public function testUserActivityInsert() {
+    $handler = activity_load_handler('user_insert');
+    $handler->templates = array(
+      'en' => array(
+        'user' => 'Registered User',
+        'public' => 'Public Message',
+      ),
+    );
+
+    $handler->options = array('roles' => array());
+    $handler->actions_id = -1;
+    $handler->label = 'Test user insert';
+
+    $objects1['user'] = (object) array(
+      'uid' => 7,
+      'status' => 1,
+      'created' => REQUEST_TIME - 68,
+      'roles' => array(
+        1 => 'admin',
+      ),
+    );
+
+    $objects2['user'] = (object) array(
+      'uid' => 45,
+      'status' => 0,
+      'created' => REQUEST_TIME - 678,
+      'roles' => array(
+        2 => 'other_role',
+      ),
+    );
+
+    // Ensure the proper eid is returned.
+    $this->assertEqual($objects1['user']->uid, $handler->determineEid(array('account' => $objects1['user'])), t('Proper Eid is returned'));
+
+    // Ensure the proper actor is returned.
+    $this->assertEqual($objects1['user']->uid, $handler->determineActor($objects1), t('Proper Actor id is returned'));
+
+    // Check timestamp.
+    $this->assertEqual($objects1['user']->created, $handler->determineTimestamp($objects1), t('Returned proper timestamp'));
+
+    // Check published flag.
+    $this->assertTrue($handler->isPublished($objects1, $objects1['user']->uid), t('Correctly flagged user insert activity as published'));
+    $this->assertTrue(!$handler->isPublished($objects2, $objects2['user']->uid), t('Correctly flagged user insert activity as unpublished.'));
+
+    // Check Role validation
+    $handler->options = array('roles' => array(1));
+    $this->assertTrue($handler->valid($objects1['user']->uid, $objects1['user']->uid, REQUEST_TIME, $objects1, NULL, NULL), t('Correctly marked a user registeration with role 1 as valid'));
+    $this->assertTrue(!$handler->valid($objects2['user']->uid, $objects2['user']->uid, REQUEST_TIME, $objects2, NULL, NULL), t('Correctly marked a user registeration without role 1 as invalid'));
+
+    $this->assertEqual($handler->determineNid($objects1), NULL, t('Returned proper a NULL nid'));
+  }
+}

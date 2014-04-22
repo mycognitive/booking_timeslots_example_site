@@ -1,0 +1,13 @@
+name = Views Composite Exposed Form Plugin
+description = Allows multiple exposed form plugins to be activated simultaneously.
+dependencies[] = views
+package = Views
+core = 7.x
+files[] = views_composite_exposed_form_plugin.inc
+
+; Information added by drupal.org packaging script on 2012-08-16
+version = "7.x-1.0-alpha1+6-dev"
+core = "7.x"
+project = "views_hacks"
+datestamp = "1345122094"
+

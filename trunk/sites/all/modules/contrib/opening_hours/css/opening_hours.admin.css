@@ -1,0 +1,118 @@
+/**
+ * @file
+ * Styling for the opening hours admin interface.
+ */
+
+#opening-hours-admin .admin-main-view .instance-display-view {
+  background-color: #cfc;
+  border: 1px solid #aea;
+  color: #373;
+  margin-bottom: 0.5em;
+  padding: 0.5em;
+  -moz-border-radius: 0.5em;
+  -webkit-border-radius: 0.5em;
+  border-radius: 0.5em;
+}
+
+#opening-hours-admin .admin-main-view .dateheader {
+  clear: left;
+  cursor: pointer;
+  float: left;
+}
+
+#opening-hours-admin .admin-main-view .dateheader:hover {
+  background-color: #ffe;
+}
+
+#opening-hours-admin .admin-main-view .navigation {
+  float: left;
+  margin-left: 3em;
+}
+
+#opening-hours-admin .admin-main-view .navigation li {
+  float: left;
+  list-style-type: none;
+}
+
+#opening-hours-admin .admin-main-view .navigation a {
+  display: block;
+  background-color: #eee;
+  border: 1px solid;
+  color: #444;
+  margin-right: 0.25em;
+  border-color: #ccc #aaa #aaa #ccc;
+  padding: 0 0.65em;
+  line-height: 200%;
+}
+
+/** Prev and next are giant arrow characters, enlarge them. **/
+#opening-hours-admin .admin-main-view .navigation .prev,
+#opening-hours-admin .admin-main-view .navigation .next {
+  font-size: 200%;
+  line-height: 100%;
+}
+
+#opening-hours-admin .admin-main-view .days {
+  clear: left;
+}
+
+#opening-hours-admin .admin-main-view .day-view {
+  min-height: 3em;
+  height: 3em;
+}
+
+#opening-hours-admin .admin-main-view .blocked {
+  background: #aaa url(../images/blocked-pattern.png);
+  border: 5px solid #777;
+  color: white;
+  font-size: 14px;
+  font-weight: bold;
+  text-align: center;
+  vertical-align: middle;
+}
+
+#oho-instance-edit-form fieldset {
+  margin-bottom: 1em;
+}
+
+#oho-instance-edit-form .text {
+  border: 1px solid;
+  border-color: #ccc #ddd #ddd;
+  padding: 0 0.25em;
+}
+
+#oho-instance-edit-form .text:focus {
+  border-color: #4d90fe;
+}
+
+#oho-instance-edit-form fieldset {
+  border-bottom: 1px solid #eee;
+  margin-right: 1em;
+  padding-bottom: 1.5em;
+  padding-top: 0.5em;
+  width: 550px;
+}
+
+#oho-instance-edit-form label {
+  font-weight: normal;
+}
+
+#oho-instance-edit-form .details label {
+  display: block;
+  margin-bottom: 0.25em;
+}
+
+.ui-dialog-overlay {
+  background-color: black;
+  opacity: 0.5;
+}
+
+.ui-dialog-container .ui-dialog-content {
+  padding: 0;
+}
+
+.ui-dialog-container .instance-edit-view,
+.ui-dialog-container p {
+  padding: 1em;
+}
+

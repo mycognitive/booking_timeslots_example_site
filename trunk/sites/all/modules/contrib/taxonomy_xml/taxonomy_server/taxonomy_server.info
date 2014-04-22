@@ -1,0 +1,16 @@
+name = Taxonomy Server
+description = Publishes full vocabularies in ways that other semantic tools can import.
+dependencies[] = taxonomy
+dependencies[] = taxonomy_xml
+package = "Taxonomy"
+core=7.x
+
+
+files[] = taxonomy_server.install
+files[] = taxonomy_server.module
+; Information added by drupal.org packaging script on 2012-04-26
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "taxonomy_xml"
+datestamp = "1335444208"
+

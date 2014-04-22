@@ -1,0 +1,24 @@
+name = Taxonomy Import/Export via XML
+description = Makes it possible to import and export taxonomy terms via XML.
+dependencies[] = taxonomy
+dependencies[] = rdf
+package = "Taxonomy"
+core=7.x
+
+files[] = csv_format.inc
+files[] = csvancestry_format.inc
+files[] = lookup_services.inc
+files[] = mesh_format.inc
+files[] = rdf_format.inc
+files[] = taxonomy_xml.install
+files[] = taxonomy_xml.module
+files[] = taxonomy_xml_rdf.inc
+files[] = tcs_format.inc
+files[] = xml_format.inc
+
+; Information added by drupal.org packaging script on 2012-04-26
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "taxonomy_xml"
+datestamp = "1335444208"
+

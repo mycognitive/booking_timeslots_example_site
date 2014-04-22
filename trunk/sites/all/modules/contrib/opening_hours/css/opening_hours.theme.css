@@ -1,0 +1,49 @@
+/**
+ * @file
+ * Styling for the opening hours block.
+ */
+
+.opening-hours-week {
+  padding: 0.5em;
+}
+
+.opening-hours-week.placeholder {
+  display: none;
+}
+
+.opening-hours-week .header {
+  background-color: #eee;
+  color: #777;
+  padding: 0.25em;
+  text-align: center;
+}
+
+.opening-hours-week .next,
+.opening-hours-week .prev {
+  font-size: 150%;
+}
+
+.opening-hours-week a.disabled {
+  color: #ccc;
+}
+
+.opening-hours-week .days {
+  padding: 0.5em;
+}
+
+.opening-hours-week .name {
+  float: left;
+  width: 6em;
+}
+
+.opening-hours-week .times {
+  clear: right;
+  display: block;
+  margin-right: 1em;
+  text-align: right;
+}
+
+.opening-hours-week .notice-star {
+  margin-right: -1em;
+}
+

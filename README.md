@@ -16,8 +16,7 @@ Installation
 1. Check database credentials in trunk/sites/default/settings.php
 2. Install environment by the following command from webroot:
 
-    cd ./scripts
-    ./build_env.sh
+        cd ./scripts && ./build_env.sh
 
 3. Access your site by pointing your HTTP server to site's webroot trunk directory, e.g. http://booking.example/
 

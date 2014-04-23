@@ -110,27 +110,44 @@ function example_booking_settings_form($form_state) {
   $content_types = array(0 => '(None)');
   $content_types += drupal_map_assoc(array_keys(node_type_get_types()));
   
-  $fields = array(0 => '(None)');
+  $non_reference_fields = array(0 => '(None)');
+  $reference_fields     = array(0 => '(None)');
+  $integer_fields       = array(0 => '(None)');
+
   foreach(field_info_fields() as $name => $info) {
-    
     $bundles = array();
     
     if ($info['bundles']) {
       $bundles = call_user_func_array('array_merge', $info['bundles']);
     }
-      
-    $bundles = implode(', ', $bundles);
-    
-    $title = $name;
-    
-    if ($bundles) {
-      $title .= ' (' . $bundles . ')';
+
+    $title = '';
+
+    if ($info['type'] == 'node_reference') {
+      $targets = array();
+      foreach ($info['settings']['referenceable_types'] as $type_name => $enabled) {
+        if ($enabled !== 0) {
+          $targets[] = $type_name;
+        }
+      }
+
+      $title  .= '[' . implode(' OR ', $bundles) . '] -> [' . implode(' OR ', $targets) . ']';
+
+      $reference_fields[$name] = $title;
     }
-    
-    $fields[$name] = $title;
+    else {
+      if ($bundles) {
+        $title  .= '[' . implode(' OR ', $bundles) . '].' . $name;
+      }
+
+      if ($info['type'] == 'number_integer') {
+        $integer_fields[$name] = $title;
+      }
+      else {
+        $non_reference_fields[$name] = $title;
+      }
+    }
   }
-  
-  
   
   //$fields += drupal_map_assoc(array_keys(field_get_items('node')));
   
@@ -155,7 +172,7 @@ function example_booking_settings_form($form_state) {
     '#type' => 'select',
     '#title' => t('Secondary to primary content type reference field'),
     '#default_value' => variable_get('example_booking_2nd_to_1st_ref_field', ''),
-    '#options' => $fields,
+    '#options' => $reference_fields,
     '#description' => t('Field acting as a reference from the 2nd to 1st content type'),
   );
   
@@ -172,7 +189,7 @@ function example_booking_settings_form($form_state) {
     '#type' => 'select',
     '#title' => t('Tertiary content type capacity field'),
     '#default_value' => variable_get('example_booking_3rd_capacity_field', ''),
-    '#options' => $fields,
+    '#options' => $integer_fields,
     '#description' => t('Field acting as a capacity indicator for a 3rd content type'),
   );
   
@@ -182,7 +199,7 @@ function example_booking_settings_form($form_state) {
     '#type' => 'select',
     '#title' => t('Tertiary to secondary content type reference field'),
     '#default_value' => variable_get('example_booking_3rd_to_2nd_ref_field', ''),
-    '#options' => $fields,
+    '#options' => $reference_fields,
     '#description' => t('Field acting as a reference from the 3rd to 2nd content type'),
   );
   
@@ -191,7 +208,7 @@ function example_booking_settings_form($form_state) {
     '#type' => 'select',
     '#title' => t('Tertiary to quaternary content type reference field'),
     '#default_value' => variable_get('example_booking_3rd_to_4th_ref_field', ''),
-    '#options' => $fields,
+    '#options' => $reference_fields,
     '#description' => t('Field acting as a reference from the 3rd to 4th content type'),
   );
   
@@ -261,10 +278,10 @@ function example_booking_settings_form($form_state) {
   
   $form['config']['date_default_timezone'] = array(
     '#type' => 'select',
-    '#title' => st('Default time zone'),
+    '#title' => t('Default time zone'),
     '#default_value' => variable_get('date_default_timezone', date_default_timezone_get()),
     '#options' => system_time_zones(),
-    '#description' => st('By default, dates in this site will be displayed in the chosen time zone.'),
+    '#description' => t('By default, dates in this site will be displayed in the chosen time zone.'),
     '#weight' => -1,
     '#attributes' => array('class' => array('timezone-detect')),
   );

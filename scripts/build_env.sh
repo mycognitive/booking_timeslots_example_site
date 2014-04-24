@@ -2,7 +2,7 @@
 DRUSH="drush -r ../trunk"
 DB_URL=$(php -r 'include("../trunk/sites/default/settings.php"); extract($databases["default"]["default"]); print "$driver://$username:$password@$host/$prefix$database";')
 
-$DRUSH site-install minimal --db-url=$DB_URL --account-pass=asdf --yes --verbose
+$DRUSH site-install minimal --db-url=$DB_URL --account-pass=admin --yes --verbose
 
 echo "Applying release steps..."
 
@@ -32,7 +32,7 @@ $DRUSH generate-content --types=class 50
 $DRUSH generate-content --types=venue 20
 $DRUSH generate-content --types=facility 20
 
-echo "Admin access: admin/asdf or please access using the following link:"
+echo "Admin access: admin/admin or please access using the following link:"
 $DRUSH -y uli                                                                     # GENERATE ONE-TIME LOGIN LINK FOR ADMIN
 
 echo $0 "done."

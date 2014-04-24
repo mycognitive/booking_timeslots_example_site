@@ -151,11 +151,11 @@ function example_booking_structure_field_default_fields() {
       'entity_types' => array(),
       'field_name' => 'field_user',
       'foreign keys' => array(
-        'node' => array(
+        'users' => array(
           'columns' => array(
-            'target_id' => 'nid',
+            'target_id' => 'uid',
           ),
-          'table' => 'node',
+          'table' => 'users',
         ),
       ),
       'indexes' => array(

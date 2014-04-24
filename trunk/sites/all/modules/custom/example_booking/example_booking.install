@@ -236,11 +236,17 @@ function example_booking_schema() {
   * Implementation of hook_install().
   */
 function example_booking_install() {
-  $schema = drupal_get_schema('opening_hours');
+  $schema['opening_hours'] = drupal_get_schema('opening_hours', TRUE);
+
   example_booking_schema_alter($schema);
 
   db_add_field('opening_hours', 'capacity', $schema['opening_hours']['fields']['capacity']);
   db_add_field('opening_hours', 'slot_length', $schema['opening_hours']['fields']['slot_length']);
+
+  $notice_field = $schema['opening_hours']['fields']['notice'];
+  $notice_field['length'] = 8192;
+
+  db_change_field('opening_hours', 'notice', 'notice', $notice_field);
   
   // Installing taxonomies
   
@@ -306,7 +312,6 @@ function example_booking_uninstall() {
   * Implementation of hook_schema_alter().
   */
 function example_booking_schema_alter(&$schema) {
-  $schema['opening_hours']['fields']['notice']['length'] = 4095;
   $schema['opening_hours']['fields']['capacity'] = array(
     'type' => 'int',
     'size' => 'small',
